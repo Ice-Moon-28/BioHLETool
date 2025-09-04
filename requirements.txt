@@ -1,0 +1,8 @@
+urllib3
+PyPDF2
+requests
+arxiv
+scholarly
+beautifulsoup4
+googlesearch-python
+pymed
