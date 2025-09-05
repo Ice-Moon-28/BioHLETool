@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import time
@@ -168,10 +169,25 @@ def query_pubmed(query: str, max_papers: int = 10, max_retries: int = 3) -> str:
             papers = list(pubmed.query(simplified_query, max_results=max_papers))
 
         if papers:
-            results = "\n\n".join(
-                [f"Title: {paper.title}\nAbstract: {paper.abstract}\nJournal: {paper.journal}" for paper in papers]
-            )
-            return results
+            # results = "\n\n".join(
+            #     [f"Title: {paper.title}\nAbstract: {paper.abstract}\nJournal: {paper.journal}" for paper in papers]
+            # )
+            papers = [{
+                "pubmed_id": article.pubmed_id,
+                "title": article.title,
+                "abstract": article.abstract,
+                "journal": article.journal,
+                "publication_date": article.publication_date,
+                "authors": [f"{a['lastname']} {a['firstname']}" for a in article.authors],
+                "keywords": article.keywords,
+                "doi": article.doi,
+                "methods": article.methods,
+                "results": article.results,
+                "conclusions": article.conclusions,
+                "copyrights": article.copyrights,
+                "url": f"https://pubmed.ncbi.nlm.nih.gov/{article.pubmed_id}/"
+            } for article in papers]
+            return papers
         else:
             return "No papers found on PubMed after multiple query attempts."
     except Exception as e:
