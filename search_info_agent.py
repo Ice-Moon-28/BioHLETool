@@ -116,7 +116,7 @@ class SearchInfoAgent:
             print(f"正在搜索概念: {concept}")
             
             # 使用Google搜索
-            search_results = search_serper_dev(concept, num_results=k, language="en")
+            search_results = search_serper_dev(concept, num_results=k)
             
             # 解析搜索结果
             results = self._parse_search_results(search_results)
