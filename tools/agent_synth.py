@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from tools.llm_config import OPENAI_TOOLS
 from tools.tool_router import execute_tool
 from tools.llm_call import client, call_openai_chat, chat_with_tools  # reuse configured OpenAI client
+import re
 
 DATASET_PATH = os.path.join("dataset", "hle", "train.json")
 

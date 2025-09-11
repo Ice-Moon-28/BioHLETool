@@ -4,7 +4,8 @@ import re
 import time
 from io import BytesIO
 from urllib.parse import urljoin
-
+import asyncio
+from crawl4ai import *
 import PyPDF2
 import requests
 from bs4 import BeautifulSoup
@@ -208,19 +209,62 @@ def search_google(query: str, num_results: int = 3, language: str = "en") -> lis
 
     """
     try:
-        results_string = ""
+        results = []
         search_query = f"{query}"
 
         for res in search(search_query, num_results=num_results, lang=language, advanced=True):
-            title = res.title
-            url = res.url
-            description = res.description
+            result_dict = {
+                "title": res.title,
+                "url": res.url,
+                "description": res.description
+            }
+            results.append(result_dict)
 
-            results_string += f"Title: {title}\nURL: {url}\nDescription: {description}\n\n"
+        return results
 
     except Exception as e:
         print(f"Error performing search: {str(e)}")
-    return results_string
+        return []
+
+def browse_webpage(url: str) -> str:
+    """Browse a webpage and return the content using AsyncWebCrawler.
+
+    Args:
+        url: Webpage URL to browse
+
+    Returns:
+        Text content of the webpage in markdown format
+
+    """
+    # 配置内容过滤参数
+    prune_filter = PruningContentFilter(
+        # Lower → more content retained, higher → more content pruned
+        threshold=0.5,           
+        # "fixed" or "dynamic"
+        threshold_type="dynamic",  
+        # Ignore nodes with <5 words
+        #min_word_threshold=5     
+    )
+    md_generator = DefaultMarkdownGenerator(content_filter=prune_filter)
+    config = CrawlerRunConfig(
+        markdown_generator=md_generator
+    )
+    async def _async_crawl():
+        async with AsyncWebCrawler() as crawler:
+            result = await crawler.arun(
+                url=url, 
+                config=config
+            )
+            if result.success: 
+                print("Raw Markdown length:", len(result.markdown.raw_markdown))
+                print("Fit Markdown length:", len(result.markdown.fit_markdown))
+            else:
+                print("Error:", result.error_message)
+
+            return result.markdown
+    
+    # 在同步函数中运行异步代码
+    return asyncio.run(_async_crawl())
 
 
 def extract_url_content(url: str) -> str:
@@ -357,5 +401,122 @@ def main():
     print("Testing query_scholar...")
     print(query_scholar("Deep Residual Learning for Image Recognition"))
 
+# ==================== 在非async函数中运行async代码的解决方案 ====================
+
+def run_async_crawler_sync(url: str) -> str:
+    """
+    在非async函数中运行AsyncWebCrawler的解决方案1：使用asyncio.run()
+    
+    Args:
+        url: 要爬取的URL
+        
+    Returns:
+        爬取结果的markdown内容
+    """
+    async def _async_crawl():
+        async with AsyncWebCrawler() as crawler:
+            result = await crawler.arun(url=url)
+            return result.markdown
+    
+    # 使用asyncio.run()在同步函数中运行async代码
+    return asyncio.run(_async_crawl())
+
+
+def run_async_crawler_with_loop(url: str) -> str:
+    """
+    在非async函数中运行AsyncWebCrawler的解决方案2：使用事件循环
+    
+    Args:
+        url: 要爬取的URL
+        
+    Returns:
+        爬取结果的markdown内容
+    """
+    async def _async_crawl():
+        async with AsyncWebCrawler() as crawler:
+            result = await crawler.arun(url=url)
+            return result.markdown
+    
+    # 获取或创建事件循环
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # 如果循环正在运行，使用run_in_executor
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, _async_crawl())
+                return future.result()
+        else:
+            return loop.run_until_complete(_async_crawl())
+    except RuntimeError:
+        # 如果没有事件循环，创建一个新的
+        return asyncio.run(_async_crawl())
+
+
+def run_async_crawler_threaded(url: str) -> str:
+    """
+    在非async函数中运行AsyncWebCrawler的解决方案3：使用线程池
+    
+    Args:
+        url: 要爬取的URL
+        
+    Returns:
+        爬取结果的markdown内容
+    """
+    import concurrent.futures
+    import threading
+    
+    async def _async_crawl():
+        async with AsyncWebCrawler() as crawler:
+            result = await crawler.arun(url=url)
+            return result.markdown
+    
+    def _run_in_thread():
+        # 在新线程中创建新的事件循环
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        try:
+            return new_loop.run_until_complete(_async_crawl())
+        finally:
+            new_loop.close()
+    
+    # 使用线程池执行
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(_run_in_thread)
+        return future.result()
+
+
+# ==================== 使用示例 ====================
+
+def test_async_crawler_methods():
+    """测试不同的async crawler运行方法"""
+    url = "https://www.nbcnews.com/business"
+    
+    print("测试方法1: asyncio.run()")
+    try:
+        result1 = run_async_crawler_sync(url)
+        print(f"方法1成功，结果长度: {len(result1)}")
+    except Exception as e:
+        print(f"方法1失败: {e}")
+    
+    print("\n测试方法2: 事件循环")
+    try:
+        result2 = run_async_crawler_with_loop(url)
+        print(f"方法2成功，结果长度: {len(result2)}")
+    except Exception as e:
+        print(f"方法2失败: {e}")
+    
+    print("\n测试方法3: 线程池")
+    try:
+        result3 = run_async_crawler_threaded(url)
+        print(f"方法3成功，结果长度: {len(result3)}")
+    except Exception as e:
+        print(f"方法3失败: {e}")
+
+
 if __name__ == "__main__":
-    main()
+    #main()
+    #browse_webpage(url="https://docs.crawl4ai.com/core/fit-markdown")
+    # 取消注释下面的行来测试async crawler方法
+    # test_async_crawler_methods()
+    print(search_google("Estimating nucleotide variation and diversity", num_results=10, language="en"))
