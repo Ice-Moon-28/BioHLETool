@@ -250,5 +250,3 @@ def search_serper_dev(query: str, num_results: int = 10):
 
     print(f"完整结果已写入 {output_file}")
     return result['organic_results']
-
-main()
