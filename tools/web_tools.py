@@ -258,10 +258,10 @@ def browse_webpage(url: str) -> str:
             if result.success: 
                 print("Raw Markdown length:", len(result.markdown.raw_markdown))
                 print("Fit Markdown length:", len(result.markdown.fit_markdown))
+                return result.markdown.fit_markdown
             else:
                 print("Error:", result.error_message)
-
-            return result.markdown
+                return None
     
     # 在同步函数中运行异步代码
     return asyncio.run(_async_crawl())
@@ -516,7 +516,7 @@ def test_async_crawler_methods():
 
 if __name__ == "__main__":
     #main()
-    #browse_webpage(url="https://docs.crawl4ai.com/core/fit-markdown")
+    browse_webpage(url="https://pmc.ncbi.nlm.nih.gov/articles/PMC8044049")
     # 取消注释下面的行来测试async crawler方法
     # test_async_crawler_methods()
-    print(search_google("Estimating nucleotide variation and diversity", num_results=10, language="en"))
+    #print(search_google("Estimating nucleotide variation and diversity", num_results=10, language="en"))

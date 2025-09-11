@@ -4,6 +4,7 @@ from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass
 from tools.llm_call import chat_with_tools
 from tools.web_tools import search_google, browse_webpage, extract_pdf_content
+from tools.search import search_serper_dev
 from prompts.tool_desc import WEB_TOOLS
 
 
@@ -15,7 +16,6 @@ class FactWithSource:
     source_detail: str  # 详细出处信息
     source_url: Optional[str] = None  # 网页URL（如果是网络搜索）
     source_title: Optional[str] = None  # 网页标题（如果是网络搜索）
-    context: Optional[str] = None  # 相关上下文
 
 
 class SearchInfoAgent:
@@ -116,14 +116,14 @@ class SearchInfoAgent:
             print(f"正在搜索概念: {concept}")
             
             # 使用Google搜索
-            search_results = search_google(concept, num_results=k, language="en")
+            search_results = search_serper_dev(concept, num_results=k, language="en")
             
             # 解析搜索结果
             results = self._parse_search_results(search_results)
             
             filtered_results = self._filter_biology_related(results)
             print(f"找到 {len(filtered_results)} 个相关结果")
-            
+
         all_results.extend(filtered_results)
         
         
@@ -143,8 +143,8 @@ class SearchInfoAgent:
         results_text = ""
         for i, result in enumerate(results, 1):
             title = result.get('title', '')
-            description = result.get('description', '')
-            url = result.get('url', '')
+            description = result.get('snippet', '')
+            url = result.get('link', '')
             results_text += f"{i}. 标题: {title}\n   描述: {description}\n   URL: {url}\n\n"
         
         prompt = f"""
@@ -241,7 +241,7 @@ class SearchInfoAgent:
                                 source_detail=f"网页标题: {title}",
                                 source_url=url,
                                 source_title=title,
-                                context=fact.get('context', '')
+                                #context=fact.get('context', '')
                             )
                             all_facts.append(fact_obj)
                     print(f"从 {title} 提取了 {len(facts)} 个facts")
@@ -273,14 +273,13 @@ class SearchInfoAgent:
 请从上述内容中提取 {n} 个重要的生物学事实。每个事实应该：
 1. 是客观的事实陈述，不是观点或推测
 2. 包含完整的前提条件（如在什么环境下、什么条件下）
-3. 不能过于简单，应该是有意义的内容
-4. 与生物学相关
+3. 不能过于简单，应该是有意义的内容，应该包含必要的上下文说明
+4. 如果实在无法达到数量要求，宁缺毋滥
 
 请以JSON格式返回，格式如下：
 [
   {{
     "fact": "相关条件或环境(前提)+具体事实陈述",
-    "context": "包含fact的出处，与fact相关的其他必要信息",
     "source": "web_search",
     "source_detail": "网页标题: {title}",
     "source_url": "{url}"
@@ -331,7 +330,6 @@ class SearchInfoAgent:
 [
   {{
     "fact": "合并后的事实陈述",
-    "context": "相关的前提条件或环境",
     "source": "web_search",
     "source_detail": "合并自多个网页",
     "source_url": "主要来源URL",
@@ -359,7 +357,6 @@ class SearchInfoAgent:
                         source_detail=fact_data.get('source_detail', '合并自多个网页'),
                         source_url=fact_data.get('source_url'),
                         source_title=fact_data.get('source_title'),
-                        context=fact_data.get('context', '')
                     )
                     merged_facts.append(fact_obj)
                 return merged_facts
@@ -447,8 +444,6 @@ def main():
     print("\n=== 最终Facts ===")
     for i, fact in enumerate(result['final_facts'], 1):
         print(f"{i}. {fact['fact']}")
-        if 'context' in fact:
-            print(f"   上下文: {fact['context']}")
         if 'sources' in fact:
             print(f"   来源: {', '.join(fact['sources'])}")
         print()
