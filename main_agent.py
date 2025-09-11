@@ -6,6 +6,8 @@
 
 import json
 import os
+import logging
+from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass
 
@@ -74,13 +76,66 @@ class BioQuestionPipeline:
     生物医学题目生成Pipeline
     """
     
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(self, model: str = "gpt-5"):
         self.model = model
         self.tools = OPENAI_TOOLS
+        
+        # 初始化日志记录
+        self._setup_logging()
         
         # 初始化新的agents
         self.extract_agent = ExtractFactAgent(model=model)
         self.search_agent = SearchInfoAgent(model=model)
+    
+    def _setup_logging(self):
+        """设置日志记录"""
+        # 创建日志目录
+        log_dir = "logs"
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        
+        # 创建日志文件名（包含时间戳）
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        info_log_file = os.path.join(log_dir, f"pipeline_info_{timestamp}.log")
+        debug_log_file = os.path.join(log_dir, f"pipeline_debug_{timestamp}.log")
+        
+        # 配置根日志记录器，确保所有子模块都使用同一个日志文件
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        
+        # 清除现有的处理器
+        for handler in root_logger.handlers[:]:
+            root_logger.removeHandler(handler)
+        
+        # 创建INFO级别文件处理器（只记录INFO及以上级别）
+        info_file_handler = logging.FileHandler(info_log_file, encoding='utf-8')
+        info_file_handler.setLevel(logging.INFO)
+        
+        # 创建DEBUG级别文件处理器（记录所有级别）
+        debug_file_handler = logging.FileHandler(debug_log_file, encoding='utf-8')
+        debug_file_handler.setLevel(logging.DEBUG)
+        
+        # 创建控制台处理器（只显示INFO及以上级别）
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        
+        # 设置日志格式
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        info_file_handler.setFormatter(formatter)
+        debug_file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+        
+        # 添加处理器到根日志记录器
+        root_logger.addHandler(info_file_handler)
+        root_logger.addHandler(debug_file_handler)
+        root_logger.addHandler(console_handler)
+        
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f"日志记录已启动")
+        self.logger.info(f"INFO级别日志文件: {info_log_file}")
+        self.logger.info(f"DEBUG级别日志文件: {debug_log_file}")
+        self.log_file = info_log_file  # 主要日志文件
+        self.debug_log_file = debug_log_file
     
     def _extract_json_from_response(self, response: str) -> str:
         """
@@ -256,28 +311,50 @@ class BioQuestionPipeline:
         """
         使用search_info_agent搜索与supporting facts相关的新事实
         """
+        self.logger.info(f"开始搜索相关事实，子领域: {subdomain}")
+        self.logger.debug(f"输入supporting_facts: {supporting_facts}")
+        
         try:
             # 提取fact文本用于搜索
             fact_texts = []
-            for fact in supporting_facts:
+            for i, fact in enumerate(supporting_facts):
+                self.logger.debug(f"处理第{i+1}个fact: {fact}")
                 if isinstance(fact, dict) and 'fact' in fact:
                     fact_texts.append(fact['fact'])
+                    self.logger.debug(f"提取fact文本: {fact['fact']}")
                 elif isinstance(fact, str):
                     fact_texts.append(fact)
+                    self.logger.debug(f"直接使用fact文本: {fact}")
+                else:
+                    self.logger.warning(f"未知的fact格式: {type(fact)} - {fact}")
+            
+            self.logger.info(f"提取到{len(fact_texts)}个fact文本用于搜索")
+            self.logger.debug(f"fact_texts: {fact_texts}")
             
             # 使用search_info_agent进行搜索和提取
+            self.logger.info("调用search_agent.run方法")
             search_result = self.search_agent.run(
                 subdomain=subdomain,
                 supporting_facts=fact_texts,
-                k=5,  # 每个概念搜索5个结果
-                n=4   # 每个网页提取2个facts
+                k=2,  # 每个概念搜索5个结果
+                n=4   # 每个网页提取4个facts
             )
+            
+            self.logger.info("search_agent.run完成")
+            self.logger.debug(f"search_result keys: {list(search_result.keys()) if isinstance(search_result, dict) else 'Not a dict'}")
             
             # 直接返回search_agent的结果，它已经包含了出处信息
             final_facts = search_result.get('final_facts', [])
+            self.logger.info(f"获取到{len(final_facts)}个最终事实")
+            
+            # 记录每个fact的详细信息
+            for i, fact in enumerate(final_facts):
+                self.logger.debug(f"最终事实{i+1}: {fact}")
+            
             return final_facts[:5]  # 最多返回5个新事实
             
         except Exception as e:
+            self.logger.error(f"使用search_info_agent搜索事实时出错: {e}", exc_info=True)
             print(f"使用search_info_agent搜索事实时出错: {e}")
             # 如果search_agent失败，返回空列表
             return []
@@ -491,44 +568,88 @@ class BioQuestionPipeline:
         """
         运行完整的pipeline
         """
+        self.logger.info("开始运行生物医学题目生成Pipeline...")
+        self.logger.info(f"输入参数 - 题目长度: {len(question)}, 解答长度: {len(rationale)}, 答案: {answer}, 主题: {raw_subject}")
         print("开始运行生物医学题目生成Pipeline...")
         
         # 步骤1: 提取知识
+        self.logger.info("步骤1: 提取题目相关知识...")
         print("步骤1: 提取题目相关知识...")
-        analysis = self.extract_knowledge(question, rationale, answer, raw_subject)
-        print(f"提取结果: 子领域={analysis.subdomain}, 支撑事实数量={len(analysis.supporting_facts)}")
+        try:
+            analysis = self.extract_knowledge(question, rationale, answer, raw_subject)
+            self.logger.info(f"知识提取完成 - 子领域: {analysis.subdomain}, 支撑事实数量: {len(analysis.supporting_facts)}")
+            self.logger.debug(f"提取的支撑事实: {analysis.supporting_facts}")
+            print(f"提取结果: 子领域={analysis.subdomain}, 支撑事实数量={len(analysis.supporting_facts)}")
+        except Exception as e:
+            self.logger.error(f"知识提取失败: {e}", exc_info=True)
+            raise
         
         # 步骤2: 重写题目
+        self.logger.info("步骤2: 重写题目...")
         print("步骤2: 重写题目...")
-        rewritten = self.rewrite_question(analysis)
+        try:
+            rewritten = self.rewrite_question(analysis)
+            self.logger.info("题目重写完成")
+            self.logger.debug(f"重写后的题目: {rewritten.question}")
+        except Exception as e:
+            self.logger.error(f"题目重写失败: {e}", exc_info=True)
+            raise
         
         # 步骤3: 搜索相关新事实
+        self.logger.info("步骤3: 搜索相关新事实...")
         print("步骤3: 搜索相关新事实...")
-        new_facts = self.search_related_facts(analysis.supporting_facts, analysis.subdomain)
-        print(f"发现新事实数量: {len(new_facts)}")
+        try:
+            new_facts = self.search_related_facts(analysis.supporting_facts, analysis.subdomain)
+            self.logger.info(f"新事实搜索完成，发现新事实数量: {len(new_facts)}")
+            self.logger.info(f"新事实:{new_facts}")
+            print(f"发现新事实数量: {len(new_facts)}")
+        except Exception as e:
+            self.logger.error(f"新事实搜索失败: {e}", exc_info=True)
+            new_facts = []  # 如果搜索失败，继续执行后续步骤
         
         # 步骤4: 扩展题目（原有方法）
+        self.logger.info("步骤4: 基于新事实扩展题目...")
         print("步骤4: 基于新事实扩展题目...")
-        extended = self.extend_question_with_facts(rewritten, analysis.supporting_facts, new_facts)
+        try:
+            extended = self.extend_question_with_facts(rewritten, analysis.supporting_facts, new_facts)
+            self.logger.info("题目扩展完成")
+            self.logger.debug(f"扩展后的题目: {extended.question}")
+        except Exception as e:
+            self.logger.error(f"题目扩展失败: {e}", exc_info=True)
+            raise
         
         # 步骤5: 仅使用新事实生成题目
+        self.logger.info("步骤5: 仅使用新事实生成题目...")
         print("步骤5: 仅使用新事实生成题目...")
         new_fact_question = None
         if new_facts:
-            new_fact_question = self.generate_question_with_new_facts_only(
-                question, rationale, new_facts, analysis.subdomain
-            )
+            try:
+                new_fact_question = self.generate_question_with_new_facts_only(
+                    question, rationale, new_facts, analysis.subdomain
+                )
+                self.logger.info("新事实题目生成完成")
+                self.logger.debug(f"新事实题目: {new_fact_question.question}")
+            except Exception as e:
+                self.logger.error(f"新事实题目生成失败: {e}", exc_info=True)
         else:
+            self.logger.info("没有新事实，跳过新事实题目生成")
             print("没有新事实，跳过新事实题目生成")
         
         # 步骤6: 使用混合事实生成题目
+        self.logger.info("步骤6: 使用混合事实生成题目...")
         print("步骤6: 使用混合事实生成题目...")
         mixed_fact_question = None
         if new_facts:
-            mixed_fact_question = self.generate_question_with_mixed_facts(
-                question, rationale, analysis.supporting_facts, new_facts, analysis.subdomain
-            )
+            try:
+                mixed_fact_question = self.generate_question_with_mixed_facts(
+                    question, rationale, analysis.supporting_facts, new_facts, analysis.subdomain
+                )
+                self.logger.info("混合事实题目生成完成")
+                self.logger.debug(f"混合事实题目: {mixed_fact_question.question}")
+            except Exception as e:
+                self.logger.error(f"混合事实题目生成失败: {e}", exc_info=True)
         else:
+            self.logger.info("没有新事实，跳过混合事实题目生成")
             print("没有新事实，跳过混合事实题目生成")
         
         # 返回完整结果
@@ -654,7 +775,13 @@ def main():
     pipeline = BioQuestionPipeline()
     
     # 运行pipeline
-    result = pipeline.run_pipeline(sample_question.strip(), sample_rationale.strip(), sample_answer, sample_subject)
+    try:
+        result = pipeline.run_pipeline(sample_question.strip(), sample_rationale.strip(), sample_answer, sample_subject)
+        pipeline.logger.info("Pipeline运行成功完成")
+    except Exception as e:
+        pipeline.logger.error(f"Pipeline运行失败: {e}", exc_info=True)
+        print(f"Pipeline运行失败: {e}")
+        raise
     
     # 保存结果
     output_file = "pipeline_result.json"
@@ -662,6 +789,8 @@ def main():
         json.dump(result, f, ensure_ascii=False, indent=2)
     
     print(f"\nPipeline运行完成！结果已保存到 {output_file}")
+    print(f"INFO级别日志已保存到: {pipeline.log_file}")
+    print(f"DEBUG级别日志已保存到: {pipeline.debug_log_file}")
     
     # 打印关键结果
     print("\n=== 关键结果摘要 ===")

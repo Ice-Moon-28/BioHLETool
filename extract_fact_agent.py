@@ -1,5 +1,6 @@
 import json
 import re
+import logging
 from typing import List, Dict, Any, Optional, Tuple
 from tools.llm_call import chat_with_tools
 
@@ -10,8 +11,9 @@ class ExtractFactAgent:
     提取：子领域、supporting facts、相关论文/PDF
     """
     
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(self, model: str = "gpt-5"):
         self.model = model
+        self.logger = logging.getLogger(__name__)
     
     def load_training_data(self, file_path: str) -> List[Dict[str, Any]]:
         """加载训练数据"""
@@ -245,15 +247,23 @@ class ExtractFactAgent:
         answer = question_data.get('answer', '')
         question_id = question_data.get('id', '')
         
+        self.logger.info(f"开始处理题目 ID: {question_id}")
+        self.logger.info(f"原始学科: {raw_subject}")
+        self.logger.debug(f"题目长度: {len(question)}, 解答长度: {len(rationale)}")
         print(f"处理题目 ID: {question_id}")
         print(f"原始学科: {raw_subject}")
         
         # 提取子领域
+        self.logger.info("开始提取子领域...")
         subdomains = self.extract_subdomains(question, rationale, raw_subject)
+        self.logger.info(f"提取到{len(subdomains)}个子领域: {subdomains}")
         print(f"提取到 {len(subdomains)} 个子领域: {subdomains}")
         
         # 提取supporting facts
+        self.logger.info("开始提取supporting facts...")
         supporting_facts = self.extract_supporting_facts(question, rationale)
+        self.logger.info(f"提取到{len(supporting_facts)}个supporting facts")
+        self.logger.debug(f"supporting facts: {supporting_facts}")
         print(f"提取到 {len(supporting_facts)} 个supporting facts")
         
         # 提取相关论文

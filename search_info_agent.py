@@ -1,5 +1,6 @@
 import json
 import re
+import logging
 from typing import List, Dict, Any, Tuple, Optional
 from dataclasses import dataclass
 from tools.llm_call import chat_with_tools
@@ -23,9 +24,10 @@ class SearchInfoAgent:
     一个可以自主进行搜索和浏览的agent，用于根据已知的"subdomain"和"supporting fact"获取"new fact"
     """
     
-    def __init__(self, model: str = "gpt-4o-mini"):
+    def __init__(self, model: str = "gpt-5"):
         self.model = model
         self.tools = self._parse_tools()
+        self.logger = logging.getLogger(__name__)
         
     def _parse_tools(self) -> List[Dict[str, Any]]:
         """解析工具描述"""
@@ -110,23 +112,37 @@ class SearchInfoAgent:
         Returns:
             过滤后的相关网页列表
         """
+        self.logger.info(f"开始搜索概念，共{len(concepts)}个概念，每个概念搜索{k}个结果")
+        self.logger.debug(f"搜索概念列表: {concepts}")
+        
         all_results = []
         
-        for concept in concepts:
+        for i, concept in enumerate(concepts):
+            self.logger.info(f"正在搜索第{i+1}个概念: {concept}")
             print(f"正在搜索概念: {concept}")
             
-            # 使用Google搜索
-            search_results = search_serper_dev(concept, num_results=k)
-            
-            # 解析搜索结果
-            results = self._parse_search_results(search_results)
-            
-            filtered_results = self._filter_biology_related(results)
-            print(f"找到 {len(filtered_results)} 个相关结果")
-
-        all_results.extend(filtered_results)
+            try:
+                # 使用Google搜索
+                self.logger.debug(f"调用search_serper_dev，参数: concept={concept}, num_results={k}")
+                search_results = search_serper_dev(concept, num_results=k)
+                self.logger.debug(f"search_serper_dev返回结果: {search_results}")
+                
+                # 解析搜索结果
+                results = self._parse_search_results(search_results)
+                self.logger.debug(f"解析后的结果: {results}")
+                
+                filtered_results = self._filter_biology_related(results)
+                self.logger.info(f"概念'{concept}'搜索完成，获得{len(filtered_results)}个相关结果")
+                print(f"找到 {len(filtered_results)} 个相关结果")
+                
+                all_results.extend(filtered_results)
+                
+            except Exception as e:
+                self.logger.error(f"搜索概念'{concept}'时出错: {e}", exc_info=True)
+                print(f"搜索概念'{concept}'时出错: {e}")
+                continue
         
-        
+        self.logger.info(f"所有概念搜索完成，总共找到 {len(all_results)} 个相关结果")
         return all_results
     
     def _parse_search_results(self, search_results: List[Dict[str, str]]) -> List[Dict[str, str]]:
@@ -212,14 +228,27 @@ class SearchInfoAgent:
         Returns:
             提取的facts列表，每个fact包含出处信息
         """
+        self.logger.info(f"开始浏览网页并提取事实，共{len(urls)}个网页，每个网页提取{n}个事实")
+        self.logger.debug(f"网页列表: {urls}")
+        
         all_facts = []
         
-        for url_info in urls:
-            url = url_info['url']
-            title = url_info.get('title', '')
-            
-            print(f"正在浏览: {title}")
-            print(f"URL: {url}")
+        for i, url_info in enumerate(urls):
+            self.logger.info(f"正在处理第{i+1}个网页")
+            self.logger.debug(f"url_info: {url_info}")
+            try:
+                url = url_info['link']
+                title = url_info.get('title', '')
+                
+                self.logger.info(f"正在浏览: {title}")
+                self.logger.debug(f"URL: {url}")
+                print(f"正在浏览: {title}")
+                print(f"URL: {url}")
+                
+            except KeyError as e:
+                self.logger.error(f"url_info缺少必要的键: {e}, url_info内容: {url_info}")
+                print(f"url_info缺少必要的键: {e}")
+                continue
             
             try:
                 # 判断是否为PDF
