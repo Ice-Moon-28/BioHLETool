@@ -11,9 +11,28 @@ class ExtractFactAgent:
     提取：子领域、supporting facts、相关论文/PDF
     """
     
-    def __init__(self, model: str = "gpt-5"):
+    def __init__(self, model: str = "Pro/deepseek-ai/DeepSeek-V3.1"):
         self.model = model
         self.logger = logging.getLogger(__name__)
+        
+        # Token统计
+        self.token_stats = {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_tokens": 0,
+            "call_count": 0
+        }
+    
+    def _update_token_stats(self, token_info: Dict[str, int]):
+        """更新token统计信息"""
+        self.token_stats["total_input_tokens"] += token_info.get("input_tokens", 0)
+        self.token_stats["total_output_tokens"] += token_info.get("output_tokens", 0)
+        self.token_stats["total_tokens"] += token_info.get("total_tokens", 0)
+        self.token_stats["call_count"] += 1
+
+    def get_token_stats(self) -> Dict[str, int]:
+        """获取token统计信息"""
+        return self.token_stats.copy()
     
     def load_training_data(self, file_path: str) -> List[Dict[str, Any]]:
         """加载训练数据"""
@@ -34,46 +53,47 @@ class ExtractFactAgent:
             子领域列表
         """
         prompt = f"""
-你是一个生物学专家，需要从给定的题目和思考过程中识别出具体的子领域。
+You are a biology expert who needs to identify specific subdomains from the given question and reasoning process.
 
-原始学科分类: {raw_subject}
+Original subject classification: {raw_subject}
 
-题目:
+Question:
 {question}
 
-思考过程:
+Reasoning process:
 {rationale}
 
-请分析题目和思考过程，识别出涉及的具体生物学子领域。子领域应该是具体的、专业的领域，比如：
-- 免疫学 (Immunology)
-- 分子生物学 (Molecular Biology) 
-- 细胞生物学 (Cell Biology)
-- 遗传学 (Genetics)
-- 生物信息学 (Bioinformatics)
-- 生物化学 (Biochemistry)
-- 微生物学 (Microbiology)
-- 神经科学 (Neuroscience)
-- 生态学 (Ecology)
-- 进化生物学 (Evolutionary Biology)
-- 发育生物学 (Developmental Biology)
-- 药理学 (Pharmacology)
-- 病理学 (Pathology)
-- 生理学 (Physiology)
-- 解剖学 (Anatomy)
-- 等等
+Please analyze the question and reasoning process to identify the specific biology subdomains involved. Subdomains should be specific, professional fields, such as:
+- Immunology
+- Molecular Biology
+- Cell Biology
+- Genetics
+- Biochemistry
+- Microbiology
+- Neuroscience
+- Ecology
+- Evolutionary Biology
+- Developmental Biology
+- Pharmacology
+- Pathology
+- Physiology
+- Anatomy
+- etc.
 
-请以JSON格式返回结果，格式如下：
+Please return the results in JSON format as follows:
 [
-  "子领域1",
-  "子领域2",
+  "Subdomain 1",
+  "Subdomain 2",
   ...
 ]
 
-只返回JSON数组，不要包含其他内容。如果无法确定具体子领域，返回空数组[]。
+Only return the JSON array, do not include other content. You should not have too many subdomains. If you cannot determine specific subdomains, return an empty array [].
 """
         
         messages = [{"role": "user", "content": prompt}]
-        response_text, _ = chat_with_tools(messages, model=self.model)
+        response_text, _, token_info = chat_with_tools(messages, model=self.model)
+        self._update_token_stats(token_info)
+        self.logger.info(f"提取子领域Token使用: 输入{token_info['input_tokens']}, 输出{token_info['output_tokens']}, 总计{token_info['total_tokens']}")
         
         try:
             subdomains = json.loads(response_text.strip())
@@ -84,7 +104,7 @@ class ExtractFactAgent:
         except json.JSONDecodeError:
             return []
     
-    def extract_supporting_facts(self, question: str, rationale: str) -> List[Dict[str, str]]:
+    def extract_supporting_facts(self, question: str, rationale: str, answer:str) -> List[Dict[str, str]]:
         """
         从思考过程中提取supporting facts
         
@@ -96,46 +116,46 @@ class ExtractFactAgent:
             supporting facts列表，每个fact包含fact内容和出处信息
         """
         prompt = f"""
-你是一个生物学专家，需要从给定的思考过程中提取出支持题目解答的客观事实。
+You are a biology expert who needs to extract objective facts that support the question's answer from the given reasoning process.
 
-题目:
+Question:
 {question}
-
-思考过程:
+Answer: {answer}
+Reasoning process:
 {rationale}
 
-请从思考过程中提取出所有支持题目解答的客观事实。每个事实应该：
-1. 是客观的、可验证的生物学事实
-2. 不是推理过程或结论，而是作为推理基础的事实
-3. 表达完整，包含必要的前提条件
-4. 有意义，不是过于简单或显而易见的陈述
-5. 与题目解答直接相关
+Please extract all objective facts that support the question's answer from the reasoning process. Each fact should:
+1. Be an objective, verifiable biological fact and also a knowledge point that the question wants to test
+2. Be meaningful, not overly simple or obvious statements
 
-例如：
-- "传统 APC（如巨噬细胞、树突状细胞）能通过吞噬作用摄取抗原，然后在 MHC II 上呈递给 T 细胞"
-- "Watterson's estimator (theta) 关注位点是否多态，而不是变异频率"
-- "pi (nucleotide diversity) 对变异频率敏感"
 
-请以JSON格式返回结果，格式如下：
+Examples:
+- "Traditional APCs (such as macrophages, dendritic cells) can take up antigens through phagocytosis and then present them to T cells on MHC II"
+- "Watterson's estimator (theta) focuses on whether sites are polymorphic, not on variant frequency"
+- "pi (nucleotide diversity) is sensitive to variant frequency"
+
+Please return the results in JSON format as follows:
 [
   {{
-    "fact": "事实1",
+    "fact": "Fact 1",
     "source": "raw_question",
-    "source_detail": "从原始题目rationale中提取"
+    "source_detail": "Extracted from original question rationale"
   }},
   {{
-    "fact": "事实2", 
+    "fact": "Fact 2", 
     "source": "raw_question",
-    "source_detail": "从原始题目rationale中提取"
+    "source_detail": "Extracted from original question rationale"
   }},
   ...
 ]
 
-只返回JSON数组，不要包含其他内容。如果没有找到相关事实，返回空数组[]。
+Only return the JSON array, do not include other content. If no relevant facts are found, return an empty array [].
 """
         
         messages = [{"role": "user", "content": prompt}]
-        response_text, _ = chat_with_tools(messages, model=self.model)
+        response_text, _, token_info = chat_with_tools(messages, model=self.model)
+        self._update_token_stats(token_info)
+        self.logger.info(f"提取支撑事实Token使用: 输入{token_info['input_tokens']}, 输出{token_info['output_tokens']}, 总计{token_info['total_tokens']}")
         
         try:
             facts = json.loads(response_text.strip())
@@ -145,12 +165,13 @@ class ExtractFactAgent:
                 for fact in facts:
                     if isinstance(fact, dict) and "fact" in fact:
                         if len(fact["fact"].strip()) > 20:
-                            # 确保有source信息
-                            if "source" not in fact:
-                                fact["source"] = "raw_question"
-                            if "source_detail" not in fact:
-                                fact["source_detail"] = "从原始题目rationale中提取"
-                            filtered_facts.append(fact)
+                            # 确保有source信息，创建新的字典避免修改原始数据
+                            processed_fact = fact.copy()
+                            if "source" not in processed_fact:
+                                processed_fact["source"] = "raw_question"
+                            if "source_detail" not in processed_fact:
+                                processed_fact["source_detail"] = "从原始题目rationale中提取"
+                            filtered_facts.append(processed_fact)
                     elif isinstance(fact, str) and len(fact.strip()) > 20:
                         # 兼容旧格式
                         filtered_facts.append({
@@ -176,46 +197,48 @@ class ExtractFactAgent:
             相关论文信息列表
         """
         prompt = f"""
-你是一个生物学专家，需要从给定的题目和思考过程中识别出是否引用了特定的论文、研究或PDF文档。
+You are a biology expert who needs to identify whether specific papers, research, or PDF documents are referenced in the given question and reasoning process.
 
-题目:
+Question:
 {question}
 
-思考过程:
+Reasoning process:
 {rationale}
 
-请分析题目和思考过程，识别出：
-1. 是否提到了特定的研究论文
-2. 是否引用了具体的作者或研究
-3. 是否提到了特定的实验、方法或发现
-4. 是否引用了教科书、综述文章或其他学术资源
+Please analyze the question and reasoning process to identify:
+1. Whether specific research papers are mentioned
+2. Whether specific authors or research are cited
+3. Whether specific experiments, methods, or discoveries are mentioned
+4. Whether textbooks, review articles, or other academic resources are cited
 
-如果找到了相关的研究或论文，请提取以下信息：
-- 论文标题（如果提到）
-- 作者姓名（如果提到）
-- 期刊名称（如果提到）
-- 年份（如果提到）
-- 任何其他相关信息
+If relevant research or papers are found, please extract the following information:
+- Paper title (if mentioned)
+- Author names (if mentioned)
+- Journal name (if mentioned)
+- Year (if mentioned)
+- Any other relevant information
 
-请以JSON格式返回结果，格式如下：
+Please return the results in JSON format as follows:
 [
   {{
-    "title": "论文标题或研究名称",
-    "authors": "作者姓名",
-    "journal": "期刊名称",
-    "year": "发表年份",
-    "url": "如果有URL的话",
-    "description": "其他相关信息"
+    "title": "Paper title or research name",
+    "authors": "Author names",
+    "journal": "Journal name",
+    "year": "Publication year",
+    "url": "If there is a URL",
+    "description": "Other relevant information"
   }},
   ...
 ]
 
-如果没有找到相关论文或研究，返回空数组[]。
-只返回JSON数组，不要包含其他内容。
+If no relevant papers or research are found, return an empty array [].
+Only return the JSON array, do not include other content.
 """
         
         messages = [{"role": "user", "content": prompt}]
-        response_text, _ = chat_with_tools(messages, model=self.model)
+        response_text, _, token_info = chat_with_tools(messages, model=self.model)
+        self._update_token_stats(token_info)
+        self.logger.info(f"提取相关论文Token使用: 输入{token_info['input_tokens']}, 输出{token_info['output_tokens']}, 总计{token_info['total_tokens']}")
         
         try:
             papers = json.loads(response_text.strip())
@@ -249,7 +272,6 @@ class ExtractFactAgent:
         
         self.logger.info(f"开始处理题目 ID: {question_id}")
         self.logger.info(f"原始学科: {raw_subject}")
-        self.logger.debug(f"题目长度: {len(question)}, 解答长度: {len(rationale)}")
         print(f"处理题目 ID: {question_id}")
         print(f"原始学科: {raw_subject}")
         
@@ -261,14 +283,11 @@ class ExtractFactAgent:
         
         # 提取supporting facts
         self.logger.info("开始提取supporting facts...")
-        supporting_facts = self.extract_supporting_facts(question, rationale)
-        self.logger.info(f"提取到{len(supporting_facts)}个supporting facts")
-        self.logger.debug(f"supporting facts: {supporting_facts}")
-        print(f"提取到 {len(supporting_facts)} 个supporting facts")
+        supporting_facts = self.extract_supporting_facts(question, rationale, answer)
         
         # 提取相关论文
-        related_papers = self.extract_related_papers(question, rationale)
-        print(f"提取到 {len(related_papers)} 个相关论文/研究")
+        #related_papers = self.extract_related_papers(question, rationale)
+        #print(f"提取到 {len(related_papers)} 个相关论文/研究")
         
         result = {
             "id": question_id,
@@ -277,8 +296,9 @@ class ExtractFactAgent:
             "raw_subject": raw_subject,
             "extracted_subdomains": subdomains,
             "supporting_facts": supporting_facts,
-            "related_papers": related_papers,
-            "rationale": rationale
+            #"related_papers": related_papers,
+            "rationale": rationale,
+            "token_stats": self.get_token_stats()
         }
         
         return result

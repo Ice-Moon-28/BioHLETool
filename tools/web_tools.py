@@ -113,27 +113,63 @@ def query_arxiv(query: str, max_papers: int = 10) -> str:
         return f"Error querying arXiv: {e}"
 
 
-def query_scholar(query: str) -> str:
-    """Query Google Scholar for papers based on the provided search query.
+def query_scholar(query: str, max_results: int = 10, sort_by_citations: bool = True) -> str:
+    """Query Google Scholar for papers based on the provided search query and sort by citations.
 
     Parameters
     ----------
     - query (str): The search query string.
+    - max_results (int): Maximum number of results to return (default: 10).
+    - sort_by_citations (bool): Whether to sort results by citation count (default: True).
 
     Returns
     -------
-    - str: The first search result formatted or an error message.
+    - str: Formatted search results sorted by citations or an error message.
 
     """
     from scholarly import scholarly
 
     try:
         search_query = scholarly.search_pubs(query)
-        result = next(search_query, None)
-        if result:
-            return f"Title: {result['bib']['title']}\nYear: {result['bib']['pub_year']}\nVenue: {result['bib']['venue']}\nAbstract: {result['bib']['abstract']}"
-        else:
+        results = []
+        
+        # 收集前max_results个结果
+        for i, result in enumerate(search_query):
+            if i >= max_results:
+                break
+            results.append(result)
+        
+        if not results:
             return "No results found on Google Scholar."
+        
+        # 如果启用按引用数排序
+        if sort_by_citations:
+            # 按引用数降序排序
+            results.sort(key=lambda x: x.get('num_citations', 0), reverse=True)
+        
+        # 格式化结果
+        formatted_results = []
+        for i, result in enumerate(results, 1):
+            title = result['bib'].get('title', 'N/A')
+            year = result['bib'].get('pub_year', 'N/A')
+            venue = result['bib'].get('venue', 'N/A')
+            abstract = result['bib'].get('abstract', 'N/A')
+            citations = result.get('num_citations', 0)
+            authors = ', '.join(result['bib'].get('author', [])) if result['bib'].get('author') else 'N/A'
+            
+            formatted_result = f"""
+论文 {i}:
+标题: {title}
+作者: {authors}
+年份: {year}
+期刊/会议: {venue}
+引用数: {citations}
+摘要: {abstract[:300]}{'...' if len(abstract) > 300 else ''}
+"""
+            formatted_results.append(formatted_result)
+        
+        return "\n".join(formatted_results)
+        
     except Exception as e:
         return f"Error querying Google Scholar: {e}"
 
@@ -399,7 +435,7 @@ def main():
 
     # 3) query_scholar
     print("Testing query_scholar...")
-    print(query_scholar("Deep Residual Learning for Image Recognition"))
+    print(query_scholar("Deep Residual Learning for Image Recognition", max_results=5, sort_by_citations=True))
 
 # ==================== 在非async函数中运行async代码的解决方案 ====================
 
@@ -516,7 +552,8 @@ def test_async_crawler_methods():
 
 if __name__ == "__main__":
     #main()
-    browse_webpage(url="https://pmc.ncbi.nlm.nih.gov/articles/PMC8044049")
+    print(query_scholar("T细胞"))
+    #browse_webpage(url="https://pmc.ncbi.nlm.nih.gov/articles/PMC8044049")
     # 取消注释下面的行来测试async crawler方法
     # test_async_crawler_methods()
     #print(search_google("Estimating nucleotide variation and diversity", num_results=10, language="en"))

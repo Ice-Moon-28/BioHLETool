@@ -7,6 +7,7 @@ import pickle
 import threading
 import time
 from typing import Dict, Optional
+from serpapi import GoogleSearch
 def get_serper_api():
     return {
         "url": "https://serpapi.com/search",
@@ -16,7 +17,12 @@ def get_serper_dev_api():
     return {
         "key": 'acab77c138957b01c62f278d06e0b7e93f310344'
     }
-
+params = {
+    "engine": "google_scholar",    # 指定使用 Scholar
+    "q": "reinforcement learning", # 搜索关键词
+    "api_key": "e570e579d7d540533b1938968fb6efd4fcedb0152168516403c06664f1fd968a", # 你的 SerpApi Key
+    "hl": "en"                     # 可选，语言
+}
 import httpx
 from cachetools import TTLCache
 
@@ -229,8 +235,8 @@ class SerperProxyServer:
 
 CACHE_FILE = "server/cache/serper_dev_api_cache_v2.pkl"
 cache_backend = InMemoryCache(file_path=CACHE_FILE)
-google_serper_dev_server = SerperProxyServer(cache_backend=cache_backend)
-
+#google_serper_dev_server = SerperProxyServer(cache_backend=cache_backend)
+"""
 def search_serper_dev(query: str, num_results: int = 10):
     result = google_serper_dev_server.sync_process_request(
         request_data={
@@ -243,10 +249,60 @@ def search_serper_dev(query: str, num_results: int = 10):
    
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
-    # 写入文件
-    output_file = "serper_dev_result.json"
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
+    return result['organic']
+"""
 
-    print(f"完整结果已写入 {output_file}")
-    return result['organic_results']
+def search_scholar_by_citations(query, api_key, num_results=20):
+    """
+    在 Google Scholar 上搜索论文，并按引用数排序。
+
+    参数:
+        query (str): 搜索关键词
+        api_key (str): SerpApi Key
+        num_results (int): 返回的论文数量上限
+
+    返回:
+        List[dict]: 每个元素是 {'title', 'authors', 'year', 'citations', 'url'}
+    """
+    all_results = []
+    start = 0
+    while len(all_results) < num_results:
+        params = {
+            "engine": "google_scholar",
+            "q": query,
+            "api_key": api_key,
+            "hl": "en",
+            "start": start,
+            "num": min(20, num_results - len(all_results))  # 每页最多20条
+        }
+
+        search = GoogleSearch(params)
+        data = search.get_dict()
+        papers = data.get('organic_results', [])
+
+        if not papers:
+            break  # 没有更多结果
+
+        for paper in papers:
+            cited_by = paper.get('cited_by', {}).get('value', 0)
+            authors = paper.get('publication_info', {}).get('authors', [])
+            year = paper.get('publication_info', {}).get('summary', '')
+            all_results.append({
+                'title': paper.get('title', ''),
+                'authors': authors,
+                'year': year,
+                'citations': cited_by,
+                'url': paper.get('link', '')
+            })
+
+        start += len(papers)
+
+    # 按引用数降序排序
+    all_results.sort(key=lambda x: x['citations'], reverse=True)
+    return all_results[:num_results]
+
+if __name__ == "__main__":
+
+    #result = search_serper_dev("Natural selection", num_results=10)
+    result = search_scholar_by_citations(query="T cells", api_key='acab77c138957b01c62f278d06e0b7e93f310344')
+    print(result)
